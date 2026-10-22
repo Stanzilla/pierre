@@ -1,9 +1,13 @@
 import assert from 'node:assert';
 import t from 'node:test';
 
+import { codeToTokens, LiveTokenizer, type ThemedToken } from '../lib/index';
 import {
   assertLineFedParity,
   checkInvariants,
+  distinctTheme,
+  initFullModule,
+  kindOfColor,
   loadLang,
   type TestLang,
   tokenKinds,
@@ -74,13 +78,49 @@ void t.test('csv: an unclosed quote runs to the end of the input', () => {
   assert.equal(kindOf(kinds, 'y,z'), kindOf(kinds, 'h2'));
 });
 
-void t.test('csv: CRLF ends a record, a lone CR is field data', () => {
-  const src = 'h1,h2\r\na\rb,c\r\nd,e';
+void t.test('csv: LF, CRLF, and a lone CR each end a record', () => {
+  const src = 'h1,h2\r\na,b\rc,d\ne,f';
   checkInvariants(csv.hl, src);
   const kinds = tokenKinds('csv', src);
-  assert.equal(kindOf(kinds, 'c'), kindOf(kinds, 'h2'));
-  assert.equal(kindOf(kinds, 'd'), kindOf(kinds, 'h1'));
+  for (const [first, second] of [
+    ['a', 'b'],
+    ['c', 'd'],
+    ['e', 'f'],
+  ]) {
+    assert.equal(kindOf(kinds, first), kindOf(kinds, 'h1'), first);
+    assert.equal(kindOf(kinds, second), kindOf(kinds, 'h2'), second);
+  }
   assertLineFedParity('csv', src);
+});
+
+// LiveTokenizer splits lines at a lone CR, so its columns must match the
+// whole-input run there too. Whole-input records do not break at a lone CR
+// and can merge across it, so both sides compare their text split at CR.
+void t.test('csv, tsv: live documents match whole input at a lone CR', () => {
+  initFullModule();
+  const pieces = (tokens: ThemedToken[]) =>
+    tokens.flatMap((tok) =>
+      tok.content
+        .split('\r')
+        .map((text): [string, string | null] => [
+          text.trim(),
+          kindOfColor(tok.color),
+        ])
+        .filter(([text]) => text !== '')
+    );
+  for (const [lang, code] of [
+    ['csv', 'h1,h2,h3\ra,b,c\r"x\ry",z\rd,e\r\n'],
+    ['tsv', 'h1\th2\th3\ra\tb\tc\rd\te\r\n'],
+  ] as const) {
+    const live = new LiveTokenizer({ lang, theme: distinctTheme, code });
+    const lines = Array.from(
+      { length: live.lineCount },
+      (_, line) => live.getLineTokens(line).tokens
+    );
+    live.dispose();
+    const whole = codeToTokens(code, { lang, theme: distinctTheme }).tokens;
+    assert.deepEqual(pieces(lines.flat()), pieces(whole.flat()), lang);
+  }
 });
 
 void t.test('csv: HTML specials and Unicode stay lossless', () => {

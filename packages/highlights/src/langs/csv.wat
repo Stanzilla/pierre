@@ -85,18 +85,18 @@
               (local.set $col (i32.add (local.get $col) (i32.const 1)))
               (br $next)))
 
-          ;; LF or CRLF ends the record; a lone CR is field data
-          (if
-            (i32.or
-              (i32.eq (local.get $c) (i32.const 10))
-              (i32.and
-                (i32.eq (local.get $c) (i32.const 13))
-                (i32.and
-                  (i32.lt_u (i32.add (global.get $ptr) (i32.const 1)) (global.get $end))
-                  (i32.eq (i32.load8_u offset=1 (global.get $ptr)) (i32.const 10)))))
+          ;; LF, CRLF, or a lone CR ends the record. Live documents split
+          ;; lines at a lone CR too, so every mode resets the column there.
+          (if (i32.or (i32.eq (local.get $c) (i32.const 10)) (i32.eq (local.get $c) (i32.const 13)))
             (then
-              (global.set $ptr
-                (i32.add (global.get $ptr) (select (i32.const 1) (i32.const 2) (i32.eq (local.get $c) (i32.const 10)))))
+              (global.set $ptr (i32.add (global.get $ptr) (i32.const 1)))
+              (if
+                (i32.and
+                  (i32.eq (local.get $c) (i32.const 13))
+                  (i32.and
+                    (i32.lt_u (global.get $ptr) (global.get $end))
+                    (i32.eq (i32.load8_u (global.get $ptr)) (i32.const 10))))
+                (then (global.set $ptr (i32.add (global.get $ptr) (i32.const 1)))))
               (call $emitGap (local.get $lhs) (global.get $ptr))
               (local.set $col (i32.const 0))
               (br $next)))
@@ -108,17 +108,10 @@
               (local.set $quoted (i32.const 1))
               (br $next)))
 
-          ;; Unquoted text, or stray text after a closing quote, runs to the
-          ;; delimiter or LF. A CR before that LF belongs to the line break.
+          ;; unquoted text, or stray text after a closing quote, runs to the
+          ;; delimiter or the line break
           (local.set $p
-            (call $scanFind3 (global.get $ptr) (local.get $delim) (i32.const 10) (local.get $delim)))
-          (if
-            (i32.and
-              (i32.lt_u (local.get $p) (global.get $end))
-              (i32.eq (i32.load8_u (local.get $p)) (i32.const 10)))
-            (then
-              (if (i32.eq (i32.load8_u (i32.sub (local.get $p) (i32.const 1))) (i32.const 13))
-                (then (local.set $p (i32.sub (local.get $p) (i32.const 1)))))))
+            (call $scanFind3 (global.get $ptr) (local.get $delim) (i32.const 10) (i32.const 13)))
           (call $emitTok (local.get $tok) (local.get $lhs) (local.get $p))
           (global.set $ptr (local.get $p)))
         (br $field))))
