@@ -167,11 +167,18 @@ export function decodeHastLines(
 
   for (let index = 0; index < lines.length; index++) {
     if (ops[offsets[index * 2]] === HOLE) continue;
-    setDeferredArrayItem(lines, index, () => {
-      position = offsets[index * 2];
-      textPosition = offsets[index * 2 + 1];
-      return decodeNodes(1)[0];
-    });
+    // The encoded buffers outlive every row, so rows are re-decoded on read
+    // rather than kept as a second copy of the whole result.
+    setDeferredArrayItem(
+      lines,
+      index,
+      () => {
+        position = offsets[index * 2];
+        textPosition = offsets[index * 2 + 1];
+        return decodeNodes(1)[0];
+      },
+      { retain: false }
+    );
   }
   return lines;
 }
